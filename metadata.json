@@ -1,0 +1,8 @@
+{
+  "name": "localizaqui",
+  "description": "localizaqui is an intelligent marketplace for local services with a conversational AI interface, connecting users with qualified professionals quickly and intuitively.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ]
+}
