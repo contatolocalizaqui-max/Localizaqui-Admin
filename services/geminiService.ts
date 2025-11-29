@@ -6,7 +6,26 @@ import { Message, GroundingInfo, ProfileData } from '../types';
 import { AiMode } from "../App";
 import { mockProfiles } from "../data/mockProfiles";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization - only create when needed
+let ai: GoogleGenAI | null = null;
+
+const getAI = (): GoogleGenAI | null => {
+    if (!ai) {
+        // No Vite, use import.meta.env para variáveis de ambiente
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || (typeof process !== 'undefined' && (process.env?.API_KEY || process.env?.GEMINI_API_KEY));
+        if (!apiKey) {
+            console.warn('GEMINI_API_KEY não está definida. A funcionalidade de IA estará limitada.');
+            return null;
+        }
+        try {
+            ai = new GoogleGenAI({ apiKey });
+        } catch (error) {
+            console.error('Erro ao inicializar GoogleGenAI:', error);
+            return null;
+        }
+    }
+    return ai;
+};
 
 interface Location {
     latitude: number;
@@ -36,6 +55,15 @@ export const getAIResponse = async (
     location?: Location,
     subscribers?: ProfileData[],
 ): Promise<Message> => {
+    const aiInstance = getAI();
+    if (!aiInstance) {
+        return {
+            id: Date.now().toString(),
+            sender: 'ai',
+            text: 'A funcionalidade de IA não está disponível no momento. Por favor, configure a GEMINI_API_KEY nas variáveis de ambiente para usar esta funcionalidade.',
+        };
+    }
+
     try {
         let modelName: string;
         const config: any = {};
@@ -158,7 +186,7 @@ ${JSON.stringify(subscriberList, null, 2)}
             request.toolConfig = toolConfig;
         }
 
-        const response = await ai.models.generateContent(request);
+        const response = await aiInstance.models.generateContent(request);
         const rawText = response.text;
         
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];

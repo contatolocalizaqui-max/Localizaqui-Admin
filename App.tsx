@@ -15,6 +15,7 @@ import { LiveAudioIndicator } from './components/chat/LiveAudioIndicator';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProviderRegisterPage from './pages/ProviderRegisterPage';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import LandingPage from './pages/LandingPage';
 import PublicLayout from './components/layout/PublicLayout';
 import HowItWorksPage from './pages/HowItWorksPage';
@@ -50,7 +51,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import RealTimeSearchPage from './pages/RealTimeSearchPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import CheckoutPage from './pages/CheckoutPage';
-import PaymentSuccessPage from './pages/PaymentSuccessPage';
+import { PaymentSuccessPage } from './pages/PaymentSuccessPage';
 import AdminPage from './pages/AdminPage';
 
 
@@ -176,11 +177,17 @@ const useLiveConversation = (setMessages: React.Dispatch<React.SetStateAction<Me
 
     const startLiveConversation = useCallback(async () => {
         try {
+            const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || (typeof process !== 'undefined' && (process.env?.API_KEY || process.env?.GEMINI_API_KEY));
+            if (!apiKey) {
+                setMessages(prev => [...prev, { id: 'api-key-error', sender: 'ai', text: 'A funcionalidade de conversa ao vivo requer a configuração da GEMINI_API_KEY.' }]);
+                return;
+            }
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             mediaStreamRef.current = stream;
             setIsLive(true);
 
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = new GoogleGenAI({ apiKey });
             audioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
             outputAudioContextRef.current = new ((window as any).AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
@@ -353,6 +360,22 @@ const App: React.FC = () => {
         }
     }
     setIsUserLoading(false);
+
+    // Detectar hash do OAuth (Google retorna tokens no hash)
+    if (window.location.hash && window.location.hash.includes('access_token')) {
+      setCurrentPage('auth/callback' as any);
+      // Limpar hash após detectar
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    // Detectar página pela URL (para outros casos)
+    const urlParams = new URLSearchParams(window.location.search);
+    const pageParam = urlParams.get('page');
+    if (pageParam) {
+      setCurrentPage(pageParam as Page | '404');
+      // Limpar URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -365,7 +388,7 @@ const App: React.FC = () => {
             initializeChat(user.name.split(' ')[0]);
             setIsUserLoading(false);
         }, 1000);
-    } else if (!user && (currentPage !== 'landing' && currentPage !== 'login' && currentPage !== 'register' && currentPage !== 'provider-register' && currentPage !== 'forgot-password' && currentPage !== 'how-it-works' && currentPage !== 'pricing' && currentPage !== 'checkout' && !['categories', 'about', 'blog', 'careers', 'help', 'contact', 'terms', 'privacy', 'real-time-search', 'admin'].includes(currentPage))) {
+    } else if (!user && (currentPage !== 'landing' && currentPage !== 'login' && currentPage !== 'register' && currentPage !== 'provider-register' && currentPage !== 'forgot-password' && currentPage !== 'how-it-works' && currentPage !== 'pricing' && currentPage !== 'checkout' && !['categories', 'about', 'blog', 'careers', 'help', 'contact', 'terms', 'privacy', 'real-time-search', 'admin', 'auth/callback'].includes(currentPage))) {
       // If user logs out, go back to landing
       setCurrentPage('landing');
     }
@@ -857,6 +880,9 @@ const App: React.FC = () => {
         case 'forgot-password':
              pageComponent = <ForgotPasswordPage onNavigateToLogin={() => handleNavigate('login')} />;
              break;
+        case 'auth/callback':
+             pageComponent = <AuthCallbackPage onAuthSuccess={setUser} onNavigate={handleNavigate} />;
+             break;
         case 'real-time-search':
              pageComponent = <RealTimeSearchPage />;
              break;
@@ -871,6 +897,11 @@ const App: React.FC = () => {
              break;
         default:
             pageComponent = <NotFoundPage onNavigate={handleNavigate} />;
+    }
+
+    // Ensure pageComponent is never null/undefined
+    if (!pageComponent) {
+        pageComponent = <NotFoundPage onNavigate={handleNavigate} />;
     }
 
     const pagesWithAuthLayout = ['register', 'provider-register', 'forgot-password'];
