@@ -3,6 +3,7 @@ import { User, Page } from '../types';
 import { SparklesIcon } from '../components/icons/SparklesIcon';
 import { CheckCircle2Icon } from '../components/icons/CheckCircle2Icon';
 import { ArrowLeftIcon } from '../components/icons/ArrowLeftIcon';
+import { supabase, isSupabaseConfigured } from '../services/supabaseClient';
 
 interface RegisterPageProps {
     onRegisterSuccess: (user: User) => void;
@@ -11,7 +12,7 @@ interface RegisterPageProps {
     onNavigate: (page: Page) => void;
 }
 
-type RegisterStep = 'typeSelection' | 'userInfo' | 'password' | 'success';
+type RegisterStep = 'typeSelection' | 'userInfo' | 'success';
 
 const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNavigateToLogin, onNavigateToProviderRegister, onNavigate }) => {
     const [step, setStep] = useState<RegisterStep>('typeSelection');
@@ -22,20 +23,113 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNaviga
         password: '',
         confirmPassword: ''
     });
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleRegister = (e: React.FormEvent) => {
+    const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Mock registration logic
+        setIsLoading(true);
+        setError('');
+
+        // Validações
         if (formData.password !== formData.confirmPassword) {
-            alert("As senhas não coincidem.");
+            setError("As senhas não coincidem.");
+            setIsLoading(false);
             return;
         }
-        setStep('success');
+
+        if (formData.password.length < 8) {
+            setError("A senha deve ter pelo menos 8 caracteres.");
+            setIsLoading(false);
+            return;
+        }
+
+        try {
+            // Verificar se Supabase está configurado
+            if (!isSupabaseConfigured()) {
+                setError('Serviço temporariamente indisponível. Verifique as configurações do sistema.');
+                setIsLoading(false);
+                return;
+            }
+
+            // Registrar no Supabase
+            const { data, error: signUpError } = await supabase.auth.signUp({
+                email: formData.email,
+                password: formData.password,
+                options: {
+                    data: {
+                        name: formData.name,
+                        phone: formData.phone,
+                        accountType: 'individual',
+                        role: 'client',
+                    }
+                }
+            });
+
+            if (signUpError) {
+                // Mensagens de erro mais amigáveis
+                let errorMessage = 'Erro ao criar conta. Tente novamente.';
+                if (signUpError.message.includes('already registered')) {
+                    errorMessage = 'Este email já está cadastrado. Tente fazer login.';
+                } else if (signUpError.message.includes('Invalid email')) {
+                    errorMessage = 'Email inválido. Verifique o endereço de email.';
+                } else if (signUpError.message.includes('Password')) {
+                    errorMessage = 'Senha muito fraca. Use uma senha mais forte.';
+                } else {
+                    errorMessage = signUpError.message || errorMessage;
+                }
+                setError(errorMessage);
+                setIsLoading(false);
+                return;
+            }
+
+            if (data.user) {
+                // Criar registro na tabela users
+                const { error: dbError } = await supabase
+                    .from('users')
+                    .insert({
+                        id: data.user.id,
+                        name: formData.name,
+                        email: formData.email,
+                        role: 'client',
+                        account_type: 'individual',
+                    });
+
+                if (dbError) {
+                    console.error('Erro ao criar usuário no banco:', dbError);
+                    // Não falha o registro se o erro for de duplicação
+                    if (dbError.code !== '23505') {
+                        setError('Conta criada, mas houve um erro ao salvar dados adicionais.');
+                        setIsLoading(false);
+                        return;
+                    }
+                }
+
+                // Sucesso
+                setStep('success');
+            } else {
+                setError('Erro ao criar conta. Tente novamente.');
+            }
+        } catch (err: any) {
+            console.error('Erro no registro:', err);
+            // Mensagens de erro mais específicas
+            let errorMessage = 'Erro ao criar conta. Tente novamente.';
+            if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+                errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
+            } else if (err.message?.includes('CORS')) {
+                errorMessage = 'Erro de configuração do servidor. Entre em contato com o suporte.';
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
+            setError(errorMessage);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const renderContent = () => {
@@ -71,65 +165,114 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNaviga
                 );
             case 'userInfo':
                 return (
-                    <form onSubmit={() => setStep('password')} className="animate-fade-in">
+                    <form onSubmit={handleRegister} className="animate-fade-in">
                         <button type="button" onClick={() => setStep('typeSelection')} className="flex items-center text-gray-500 hover:text-white mb-6 transition-colors">
                             <ArrowLeftIcon className="w-4 h-4 mr-2" /> Voltar
                         </button>
-                        <h2 className="text-3xl font-bold text-white mb-2">Seus dados básicos</h2>
-                        <p className="text-gray-400 mb-8">Vamos criar sua identidade na plataforma.</p>
+                        <h2 className="text-3xl font-bold text-white mb-2">Criar sua conta</h2>
+                        <p className="text-gray-400 mb-8">Preencha seus dados para começar.</p>
+
+                        {error && (
+                            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+                                {error}
+                            </div>
+                        )}
                         
                         <div className="space-y-5">
                              <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1.5">Nome Completo</label>
-                                <input type="text" name="name" required className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" placeholder="Ex: João da Silva" value={formData.name} onChange={handleInputChange} />
+                                <input 
+                                    type="text" 
+                                    name="name" 
+                                    required 
+                                    className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" 
+                                    placeholder="Ex: João da Silva" 
+                                    value={formData.name} 
+                                    onChange={handleInputChange}
+                                    disabled={isLoading}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1.5">Email</label>
-                                <input type="email" name="email" required className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" placeholder="nome@exemplo.com" value={formData.email} onChange={handleInputChange} />
+                                <input 
+                                    type="email" 
+                                    name="email" 
+                                    required 
+                                    className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" 
+                                    placeholder="nome@exemplo.com" 
+                                    value={formData.email} 
+                                    onChange={handleInputChange}
+                                    disabled={isLoading}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1.5">Telefone / WhatsApp</label>
-                                <input type="tel" name="phone" className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" placeholder="(00) 00000-0000" value={formData.phone} onChange={handleInputChange} />
+                                <input 
+                                    type="tel" 
+                                    name="phone" 
+                                    className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" 
+                                    placeholder="(00) 00000-0000" 
+                                    value={formData.phone} 
+                                    onChange={handleInputChange}
+                                    disabled={isLoading}
+                                />
                             </div>
-                        </div>
-
-                        <div className="mt-6 flex items-start gap-3">
-                            <input type="checkbox" id="terms" required className="mt-1 h-4 w-4 rounded bg-[#111111] border-gray-800 text-[#20FF82] focus:ring-[#20FF82]" />
-                            <label htmlFor="terms" className="text-sm text-gray-400">
-                                Li e concordo com os <button type="button" onClick={() => onNavigate('terms')} className="text-[#20FF82] hover:underline">Termos de Serviço</button> e <button type="button" onClick={() => onNavigate('privacy')} className="text-[#20FF82] hover:underline">Política de Privacidade</button>.
-                            </label>
-                        </div>
-
-                        <button type="submit" className="w-full mt-8 bg-[#20FF82] hover:bg-[#1ce676] text-black font-bold py-4 rounded-xl transition-all">
-                            Continuar
-                        </button>
-                    </form>
-                );
-            case 'password':
-                 return (
-                    <form onSubmit={handleRegister} className="animate-fade-in">
-                        <button type="button" onClick={() => setStep('userInfo')} className="flex items-center text-gray-500 hover:text-white mb-6 transition-colors">
-                            <ArrowLeftIcon className="w-4 h-4 mr-2" /> Voltar
-                        </button>
-                        <h2 className="text-3xl font-bold text-white mb-2">Segurança da conta</h2>
-                        <p className="text-gray-400 mb-8">Crie uma senha forte para proteger seus dados.</p>
-
-                        <div className="space-y-5">
-                             <div>
+                            <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1.5">Senha</label>
-                                <input type="password" name="password" required className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" placeholder="••••••••" value={formData.password} onChange={handleInputChange} />
+                                <input 
+                                    type="password" 
+                                    name="password" 
+                                    required 
+                                    minLength={8}
+                                    className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" 
+                                    placeholder="••••••••" 
+                                    value={formData.password} 
+                                    onChange={handleInputChange}
+                                    disabled={isLoading}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1.5">Confirmar Senha</label>
-                                <input type="password" name="confirmPassword" required className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" placeholder="••••••••" value={formData.confirmPassword} onChange={handleInputChange} />
+                                <input 
+                                    type="password" 
+                                    name="confirmPassword" 
+                                    required 
+                                    minLength={8}
+                                    className="w-full bg-[#111111] border border-gray-800 rounded-xl px-4 py-3.5 text-white focus:ring-2 focus:ring-[#20FF82]" 
+                                    placeholder="••••••••" 
+                                    value={formData.confirmPassword} 
+                                    onChange={handleInputChange}
+                                    disabled={isLoading}
+                                />
                             </div>
                              <div className="bg-gray-900/50 p-4 rounded-lg">
                                 <p className="text-xs text-gray-500">A senha deve conter pelo menos 8 caracteres, incluindo letras e números.</p>
                              </div>
                         </div>
 
-                        <button type="submit" className="w-full mt-8 bg-[#20FF82] hover:bg-[#1ce676] text-black font-bold py-4 rounded-xl transition-all">
-                           Finalizar Cadastro
+                        <div className="mt-6 flex items-start gap-3">
+                            <input 
+                                type="checkbox" 
+                                id="terms" 
+                                required 
+                                className="mt-1 h-4 w-4 rounded bg-[#111111] border-gray-800 text-[#20FF82] focus:ring-[#20FF82]"
+                                disabled={isLoading}
+                            />
+                            <label htmlFor="terms" className="text-sm text-gray-400">
+                                Li e concordo com os <button type="button" onClick={() => onNavigate('terms')} className="text-[#20FF82] hover:underline">Termos de Serviço</button> e <button type="button" onClick={() => onNavigate('privacy')} className="text-[#20FF82] hover:underline">Política de Privacidade</button>.
+                            </label>
+                        </div>
+
+                        <button 
+                            type="submit" 
+                            disabled={isLoading}
+                            className="w-full mt-8 bg-[#20FF82] hover:bg-[#1ce676] text-black font-bold py-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        >
+                            {isLoading ? (
+                                <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                'Criar Conta'
+                            )}
                         </button>
                     </form>
                 );
@@ -141,7 +284,39 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNaviga
                         </div>
                         <h2 className="text-3xl font-bold text-white mb-3">Conta criada com sucesso!</h2>
                         <p className="text-gray-400 mb-8 max-w-xs mx-auto">Bem-vindo(a) à comunidade localizaqui. Tudo pronto para começar.</p>
-                        <button onClick={() => onRegisterSuccess({ id: '2', name: formData.name, email: formData.email })} className="w-full bg-[#20FF82] hover:bg-[#1ce676] text-black font-bold py-4 rounded-xl transition-all transform hover:scale-105">
+                        <button 
+                            onClick={async () => {
+                                // Fazer login automático após registro
+                                try {
+                                    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+                                        email: formData.email,
+                                        password: formData.password,
+                                    });
+
+                                    if (loginError) {
+                                        // Se não conseguir fazer login automático, redireciona para login
+                                        onNavigate('login');
+                                        return;
+                                    }
+
+                                    if (loginData.user) {
+                                        const user: User = {
+                                            id: loginData.user.id,
+                                            email: loginData.user.email || formData.email,
+                                            name: loginData.user.user_metadata?.name || formData.name,
+                                            isAdmin: loginData.user.user_metadata?.isAdmin || false,
+                                        };
+                                        
+                                        localStorage.setItem('loggedInUser', JSON.stringify(user));
+                                        onRegisterSuccess(user);
+                                    }
+                                } catch (err) {
+                                    // Em caso de erro, redireciona para login
+                                    onNavigate('login');
+                                }
+                            }} 
+                            className="w-full bg-[#20FF82] hover:bg-[#1ce676] text-black font-bold py-4 rounded-xl transition-all transform hover:scale-105"
+                        >
                             Acessar Plataforma
                         </button>
                     </div>

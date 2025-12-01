@@ -8,12 +8,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase URL e/ou Anon Key não estão configuradas. Verifique as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY');
 }
 
-// Create Supabase client with fallback to prevent errors
-// Use dummy values if not configured to prevent crashes
-const safeUrl = supabaseUrl || 'https://placeholder.supabase.co';
-const safeKey = supabaseAnonKey || 'placeholder-key';
+// Create Supabase client - only if configured, otherwise throw error on use
+let supabaseInstance: ReturnType<typeof createClient> | null = null;
 
-export const supabase = createClient(safeUrl, safeKey);
+if (supabaseUrl && supabaseAnonKey) {
+  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+} else {
+  // Create a mock client that will throw errors on use
+  supabaseInstance = createClient('https://placeholder.supabase.co', 'placeholder-key');
+}
+
+export const supabase = supabaseInstance;
 
 // Helper function to check if Supabase is configured
 export const isSupabaseConfigured = (): boolean => {
