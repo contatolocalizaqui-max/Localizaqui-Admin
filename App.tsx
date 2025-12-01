@@ -63,10 +63,17 @@ const useChat = (initialName: string, aiMode: AiMode, location: { latitude: numb
     const [isLoading, setIsLoading] = useState(false);
     const [isUserTyping, setIsUserTyping] = useState(false);
     const chatEndRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<Message[]>([]);
+
+    // Keep messagesRef in sync with messages state
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
 
     const initializeChat = useCallback((name: string) => {
         // Removed initial text message to show the "Dashboard Zero" first
         setMessages([]); 
+        messagesRef.current = [];
     }, []);
     
     const scrollToBottom = () => {
@@ -99,26 +106,50 @@ const useChat = (initialName: string, aiMode: AiMode, location: { latitude: numb
             sender: 'user',
             imageUrl: userMessageImageUrl,
         };
-        setMessages((prev) => [...prev, userMessage]);
+        
+        // Add user message immediately
+        setMessages((prev) => {
+            const updated = [...prev, userMessage];
+            messagesRef.current = updated;
+            return updated;
+        });
         setIsLoading(true);
 
+        // Process AI response asynchronously using ref to avoid stale closure
         try {
-            const history = messages;
+            const currentMessages = messagesRef.current;
             const subscribers = mockProfiles.filter(p => p.isSubscriber);
-            const aiResponse = await getAIResponse(text, history, aiMode, imagePart, location ?? undefined, subscribers);
-            setMessages((prev) => [...prev, aiResponse]);
+            const aiResponse = await getAIResponse(text, currentMessages, aiMode, imagePart, location ?? undefined, subscribers);
+            setMessages((prevMsgs) => {
+                // Check if AI response already added to prevent duplicates
+                const exists = prevMsgs.some(m => m.id === aiResponse.id);
+                if (!exists) {
+                    const updated = [...prevMsgs, aiResponse];
+                    messagesRef.current = updated;
+                    return updated;
+                }
+                return prevMsgs;
+            });
         } catch (error) {
             console.error('Error getting AI response:', error);
             const errorMessage: Message = {
-                id: Date.now().toString(),
+                id: `error-${Date.now()}`,
                 text: 'Desculpe, ocorreu um erro ao processar sua solicitação. Tente novamente.',
                 sender: 'ai',
             };
-            setMessages((prev) => [...prev, errorMessage]);
+            setMessages((prevMsgs) => {
+                const exists = prevMsgs.some(m => m.id === errorMessage.id);
+                if (!exists) {
+                    const updated = [...prevMsgs, errorMessage];
+                    messagesRef.current = updated;
+                    return updated;
+                }
+                return prevMsgs;
+            });
         } finally {
             setIsLoading(false);
         }
-    }, [messages, aiMode, location]);
+    }, [aiMode, location]);
 
     const handleSuggestionClick = (suggestion: string) => {
         handleSendMessage(suggestion);
@@ -395,8 +426,15 @@ const App: React.FC = () => {
   }, [user, initializeChat, currentPage]);
 
   useEffect(() => {
-    // Get initial location
-    handleGetLocation(false);
+    // Get initial location - wrapped in try-catch to prevent errors
+    try {
+      if (navigator.geolocation) {
+        handleGetLocation(false);
+      }
+    } catch (error) {
+      console.warn('Geolocation not available:', error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
