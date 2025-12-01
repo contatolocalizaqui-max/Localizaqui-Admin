@@ -50,13 +50,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNaviga
         }
 
         try {
-            // Verificar se Supabase está configurado
-            if (!isSupabaseConfigured()) {
-                setError('Serviço temporariamente indisponível. Verifique as configurações do sistema.');
-                setIsLoading(false);
-                return;
-            }
-
+            // Tentar registrar mesmo se a verificação falhar (para ver o erro real)
             // Registrar no Supabase
             const { data, error: signUpError } = await supabase.auth.signUp({
                 email: formData.email,
@@ -74,7 +68,14 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNaviga
             if (signUpError) {
                 // Mensagens de erro mais amigáveis
                 let errorMessage = 'Erro ao criar conta. Tente novamente.';
-                if (signUpError.message.includes('already registered')) {
+                
+                // Verificar se é erro de configuração
+                if (signUpError.message.includes('Invalid API key') || 
+                    signUpError.message.includes('Failed to fetch') ||
+                    signUpError.message.includes('NetworkError') ||
+                    signUpError.message.includes('placeholder')) {
+                    errorMessage = 'Erro de configuração: Variáveis de ambiente do Supabase não estão configuradas corretamente no Vercel.';
+                } else if (signUpError.message.includes('already registered')) {
                     errorMessage = 'Este email já está cadastrado. Tente fazer login.';
                 } else if (signUpError.message.includes('Invalid email')) {
                     errorMessage = 'Email inválido. Verifique o endereço de email.';
@@ -83,6 +84,8 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess, onNaviga
                 } else {
                     errorMessage = signUpError.message || errorMessage;
                 }
+                
+                console.error('Erro no signUp:', signUpError);
                 setError(errorMessage);
                 setIsLoading(false);
                 return;
