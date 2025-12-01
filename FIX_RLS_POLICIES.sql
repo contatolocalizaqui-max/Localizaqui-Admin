@@ -35,9 +35,18 @@ DROP POLICY IF EXISTS "Subscriptions are private" ON subscriptions;
 -- ============================================
 -- TABELA: users
 -- ============================================
--- Política única otimizada: Usuários podem ver seus próprios dados
+-- Política otimizada: Usuários podem ver seus próprios dados
 CREATE POLICY "Users can view own data" ON users
   FOR SELECT USING ((select auth.uid()) = id);
+
+-- Política para permitir INSERT: Usuários podem criar seu próprio registro
+-- (Normalmente feito pelo trigger, mas necessário caso o trigger falhe)
+CREATE POLICY "Users can insert own data" ON users
+  FOR INSERT WITH CHECK ((select auth.uid()) = id);
+
+-- Política para permitir UPDATE: Usuários podem atualizar seus próprios dados
+CREATE POLICY "Users can update own data" ON users
+  FOR UPDATE USING ((select auth.uid()) = id);
 
 -- ============================================
 -- TABELA: profiles
@@ -93,6 +102,25 @@ CREATE POLICY "Proposals viewable by demand owner or provider" ON proposals
 -- Política otimizada: Assinaturas são privadas
 CREATE POLICY "Subscriptions are private" ON subscriptions
   FOR ALL USING ((select auth.uid()) = user_id);
+
+-- ============================================
+-- PARTE 3: Verificar se o trigger existe
+-- ============================================
+-- O trigger handle_new_user() cria automaticamente o registro na tabela users
+-- quando um usuário é criado no auth.users. Ele usa SECURITY DEFINER, então
+-- não precisa de política RLS. Mas adicionamos políticas de INSERT/UPDATE
+-- como fallback caso o trigger falhe.
+
+-- Verificar se o trigger existe
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger 
+    WHERE tgname = 'on_auth_user_created'
+  ) THEN
+    RAISE WARNING 'Trigger on_auth_user_created não encontrado! Execute FIX_USERS_TABLE.sql ou SCHEMA_CONSOLIDADO.sql';
+  END IF;
+END $$;
 
 -- ============================================
 -- FIM DO SCRIPT
