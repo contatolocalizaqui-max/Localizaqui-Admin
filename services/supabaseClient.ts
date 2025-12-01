@@ -2,25 +2,33 @@ import { createClient } from '@supabase/supabase-js';
 
 // Get Supabase URL and Key from environment variables
 // No Vite, import.meta.env é usado em tempo de build
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Também tenta process.env como fallback (para compatibilidade)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 
+                    (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_URL) || 
+                    '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 
+                       (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_ANON_KEY) || 
+                       '';
 
-// Debug: Log para verificar se as variáveis estão sendo carregadas (apenas em dev)
-if (import.meta.env.DEV) {
-  console.log('🔍 Debug Supabase Config:', {
-    hasUrl: !!supabaseUrl,
-    hasKey: !!supabaseAnonKey,
-    urlLength: supabaseUrl?.length || 0,
-    keyLength: supabaseAnonKey?.length || 0,
-    urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'missing',
-  });
-}
+// Debug: Log para verificar se as variáveis estão sendo carregadas
+// Sempre logar em produção também para debug
+console.log('🔍 Debug Supabase Config:', {
+  hasUrl: !!supabaseUrl,
+  hasKey: !!supabaseAnonKey,
+  urlLength: supabaseUrl?.length || 0,
+  keyLength: supabaseAnonKey?.length || 0,
+  urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'missing',
+  keyPreview: supabaseAnonKey ? `${supabaseAnonKey.substring(0, 30)}...` : 'missing',
+  mode: import.meta.env.MODE,
+  allEnvKeys: Object.keys(import.meta.env).filter(k => k.includes('SUPABASE') || k.includes('VITE')),
+});
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('❌ Supabase não configurado!', {
     missingUrl: !supabaseUrl,
     missingKey: !supabaseAnonKey,
     envKeys: Object.keys(import.meta.env).filter(k => k.includes('SUPABASE')),
+    allViteKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')),
   });
 }
 
